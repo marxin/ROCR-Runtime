@@ -58,14 +58,6 @@ else ()
     set ( IS64BIT 1 )
 endif ()
 
-if ( NOT EXISTS ${HSATHK_BUILD_INC_PATH}/hsakmt.h )
-    MESSAGE ( FATAL_ERROR "Environment variable HSATHK_BUILD_INC_PATH is not set to point to the location where KFD Thunk header file hsakmt.h (and rest of the thunk headers) could be found." )
-endif ()
-
-if ( NOT EXISTS ${HSATHK_BUILD_LIB_PATH}/libhsakmt.so.1 )
-    MESSAGE ( FATAL_ERROR "Environment variable HSATHK_BUILD_LIB_PATH is not set to point to the location where KFD Thunk library libhsakmt.so.1 could be found." )
-endif ()
-
 if ( EXISTS ${LIBSP3_BUILD_INC_PATH}/sp3.h )
   set ( LIBSP3_BUILD_INC_PATH ${LIBSP3_BUILD_INC_PATH} )
 else ()
