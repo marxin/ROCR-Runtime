@@ -96,6 +96,19 @@ enum amd_loaded_segment_info_t {
   AMD_LOADED_SEGMENT_INFO_SIZE = 3
 };
 
+
+struct BrigModuleHeader {
+  char identification[8];
+  uint32_t brigMajor;
+  uint32_t brigMinor;
+  uint64_t byteCount;
+  uint8_t hash[64];
+  uint32_t reserved;
+  uint32_t sectionCount;
+  uint64_t sectionIndex;
+};
+
+
 namespace amd {
 namespace hsa {
 namespace loader {
@@ -103,6 +116,7 @@ namespace loader {
 //===----------------------------------------------------------------------===//
 // Context.                                                                   //
 //===----------------------------------------------------------------------===//
+
 
 class Context {
 public:
@@ -321,6 +335,9 @@ public:
 
   virtual void Print(std::ostream& out) = 0;
   virtual bool PrintToFile(const std::string& filename) = 0;
+
+    virtual void AddModule(BrigModuleHeader *module){}
+    virtual std::vector<BrigModuleHeader *> *GetAllModules() { return nullptr; }
 
 protected:
   Executable() {}

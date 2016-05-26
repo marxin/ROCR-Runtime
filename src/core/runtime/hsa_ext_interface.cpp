@@ -44,6 +44,32 @@
 
 #include "core/inc/runtime.h"
 
+#include "core/inc/runtime.h"
+#include "core/inc/agent.h"
+#include "core/inc/host_queue.h"
+#include "core/inc/memory_region.h"
+#include "core/inc/queue.h"
+#include "core/inc/signal.h"
+#include "core/inc/default_signal.h"
+#include "core/inc/interrupt_signal.h"
+#include "core/inc/amd_load_map.h"
+#include "core/inc/amd_loader_context.hpp"
+#include "core/runtime/isa.hpp"
+using namespace amd::hsa::code;
+
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+hsa_status_t
+hsa_executable_finalize (hsa_executable_t executable, hsa_isa_t isa, hsa_code_object_t*);
+
 namespace core {
 // Implementations for missing / unsupported extensions
 template <class T0>
@@ -164,13 +190,154 @@ static T0 hsa_ext_null(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13,
 
 ExtensionEntryPoints::ExtensionEntryPoints() { InitTable(); }
 
+hsa_status_t
+hsa_program_add_module(hsa_ext_program_t program, hsa_ext_module_t module)
+{
+  hsa_executable_t *executable = (hsa_executable_t*)&program;
+  amd::hsa::loader::Executable *exec = amd::hsa::loader::Executable::Object(*executable);
+
+  BrigModuleHeader *h = (BrigModuleHeader *)module;
+  exec->AddModule (h);
+
+  return HSA_STATUS_SUCCESS;
+}
+
+hsa_status_t
+hsa_program_create (hsa_machine_model_t machine_model, hsa_profile_t profile,
+		    hsa_default_float_rounding_mode_t default_float_rounding_mode,
+		    const char* options, hsa_ext_program_t* program)
+{
+  hsa_executable_t *executable = (hsa_executable_t *)program;
+  return hsa_executable_create(profile, HSA_EXECUTABLE_STATE_UNFROZEN, NULL, executable);
+}
+
+hsa_status_t
+hsa_executable_finalize2 (hsa_executable_t executable, hsa_isa_t isa, hsa_code_object_t
+*code_object)
+{
+  /* Get all modules.  */
+  hsa_status_t status;
+  amd::hsa::loader::Executable *exec = amd::hsa::loader::Executable::Object(executable);
+  std::vector<BrigModuleHeader *> *modules= exec->GetAllModules();
+  unsigned modules_count = modules->size ();
+
+  /* Get name of ISA.  */
+  unsigned isa_length;
+  status = HSA::hsa_isa_get_info (isa, HSA_ISA_INFO_NAME_LENGTH, 0, &isa_length);
+  assert(status == HSA_STATUS_SUCCESS);
+
+  char *isa_name = (char *) malloc (isa_length + 1);
+  status = HSA::hsa_isa_get_info (isa, HSA_ISA_INFO_NAME, 0, isa_name);
+  assert (status == HSA_STATUS_SUCCESS);
+  isa_name[isa_length] = '\0';
+
+  // TODO: this is hack as the format is 'AMD:AMDGPU:8:0:1'
+  isa_name += 11;
+
+  /* Call HOF compiler.  */
+  char isatmp[] = "/tmp/fileXXXXXX";
+
+  /* Create temp for output ISA file.  */
+  int isa_file = mkstemp (isatmp);
+  assert (isa_file);
+  close (isa_file);
+
+  std::vector<char *> brig_filenames;
+
+  std::vector<char *> arguments;
+  arguments.push_back ("hof");
+  char tmp[100] = "-output=";
+  strcat(tmp, isatmp);
+  arguments.push_back (tmp);
+  arguments.push_back ("-brig");
+
+  for (unsigned i = 0; i < modules_count; i++)
+  {
+    char *brig = (char *)malloc (100);
+    strcpy (brig, "/tmp/fileXXXXXX");
+    int brig_file = mkstemp (brig);
+    assert (brig_file);
+    brig_filenames.push_back (brig);
+
+    BrigModuleHeader *m = (BrigModuleHeader *) (*modules)[i];
+    unsigned int size = m->byteCount;
+
+    ssize_t s = write (brig_file, m, size);
+    assert (s == size);
+
+    arguments.push_back (brig);
+
+    close (brig_file);
+  }
+
+  /* Fork and execute */
+  int cpid = fork();
+
+  if (cpid == -1) 
+    fprintf (stderr, "fork failed\n");
+  else if(cpid == 0)
+  {
+    char target[100] = "-target=";
+    strcat(target, isa_name);
+    arguments.push_back (target);
+    arguments.push_back (NULL);
+
+    int n = execvp ("hof", arguments.data ());
+    fprintf (stderr, "err: %s\n", strerror (errno));
+  }
+  else
+  {
+    int status;
+    int r = waitpid (0, &status, WUNTRACED | WCONTINUED);
+  }
+
+  struct stat st;
+  stat(isatmp, &st);
+  unsigned size = st.st_size;
+
+  /* Memory for content of ISA file.  */
+  char *isa_content = (char *) malloc (size);
+
+  isa_file = open (isatmp, O_RDONLY);
+  int x = read (isa_file, isa_content, size);
+  assert (x == size);
+
+  status = HSA::hsa_code_object_deserialize(isa_content, size, NULL, code_object);
+  assert(HSA_STATUS_SUCCESS == status);
+  assert(0 != code_object->handle);
+
+  /* Remove BRIG temp files.  */
+  for (unsigned i = 0; i < brig_filenames.size (); i++)
+    remove (brig_filenames[i]);
+
+  remove (isatmp);
+
+  free (isa_content);
+
+  return HSA_STATUS_SUCCESS;
+}
+
+
+hsa_status_t hsa_program_finalize(
+    hsa_ext_program_t program,
+    hsa_isa_t isa,
+    int32_t call_convention,
+    hsa_ext_control_directives_t control_directives,
+    const char *options,
+    hsa_code_object_type_t code_object_type,
+    hsa_code_object_t *code_object)
+{
+  hsa_executable_t *executable = (hsa_executable_t*)&program;
+  hsa_executable_finalize2 (*executable, isa, code_object);
+}
+
 void ExtensionEntryPoints::InitTable() {
-  table.hsa_ext_program_create_fn = hsa_ext_null;
+  table.hsa_ext_program_create_fn = hsa_program_create;
   table.hsa_ext_program_destroy_fn = hsa_ext_null;
-  table.hsa_ext_program_add_module_fn = hsa_ext_null;
+  table.hsa_ext_program_add_module_fn = hsa_program_add_module;
   table.hsa_ext_program_iterate_modules_fn = hsa_ext_null;
   table.hsa_ext_program_get_info_fn = hsa_ext_null;
-  table.hsa_ext_program_finalize_fn = hsa_ext_null;
+  table.hsa_ext_program_finalize_fn = hsa_program_finalize;
   table.hsa_ext_image_get_capability_fn = hsa_ext_null;
   table.hsa_ext_image_data_get_info_fn = hsa_ext_null;
   table.hsa_ext_image_create_fn = hsa_ext_null;

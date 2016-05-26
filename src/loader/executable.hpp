@@ -69,6 +69,8 @@ class KernelSymbol;
 class VariableSymbol;
 class ExecutableImpl;
 
+
+
 //===----------------------------------------------------------------------===//
 // SymbolImpl.                                                                //
 //===----------------------------------------------------------------------===//
@@ -407,6 +409,16 @@ public:
   Context* context() { return context_; }
   size_t id() { return id_; }
 
+  void AddModule(BrigModuleHeader *module)
+  {
+    modules.push_back (module);
+  }
+
+  std::vector<BrigModuleHeader *> *GetAllModules()
+  {
+    return &modules;
+  }
+
 private:
   ExecutableImpl(const ExecutableImpl &e);
   ExecutableImpl& operator=(const ExecutableImpl &e);
@@ -444,6 +456,7 @@ private:
   std::vector<ExecutableObject*> objects;
   Segment *program_allocation_segment;
   std::vector<LoadedCodeObjectImpl*> loaded_code_objects;
+  std::vector<BrigModuleHeader *> modules;
 };
 
 class AmdHsaCodeLoader : public Loader {
