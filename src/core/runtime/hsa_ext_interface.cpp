@@ -52,9 +52,6 @@
 #include "core/inc/signal.h"
 #include "core/inc/default_signal.h"
 #include "core/inc/interrupt_signal.h"
-#include "core/inc/amd_load_map.h"
-#include "core/inc/amd_loader_context.hpp"
-#include "core/runtime/isa.hpp"
 using namespace amd::hsa::code;
 
 
@@ -328,7 +325,7 @@ hsa_status_t hsa_program_finalize(
     hsa_code_object_t *code_object)
 {
   hsa_executable_t *executable = (hsa_executable_t*)&program;
-  hsa_executable_finalize2 (*executable, isa, code_object);
+  return hsa_executable_finalize2 (*executable, isa, code_object);
 }
 
 void ExtensionEntryPoints::InitTable() {
