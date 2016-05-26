@@ -283,7 +283,7 @@ hsa_executable_finalize2 (hsa_executable_t executable, hsa_isa_t isa, hsa_code_o
     arguments.push_back (NULL);
 
     int n = execvp ("hof", arguments.data ());
-    fprintf (stderr, "err: %s\n", strerror (errno));
+    fprintf (stderr, "Could not execute hof offline compilee: %s\n", strerror (errno));
   }
   else
   {
